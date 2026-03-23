@@ -1,0 +1,156 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "config.example.yaml"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Bump version
+        id: version
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          PATCH=$((PATCH + 1))
+          NEXT="${MAJOR}.${MINOR}.${PATCH}"
+
+          # Update package.json
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '${NEXT}';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+          echo "version=${NEXT}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${NEXT}" >> "$GITHUB_OUTPUT"
+          echo "Bumped ${CURRENT} → ${NEXT}"
+
+      - name: Install & build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "v${{ steps.version.outputs.version }}" || exit 0
+          git push
+
+      - name: Create tag
+        run: |
+          git tag ${{ steps.version.outputs.tag }}
+          git push origin ${{ steps.version.outputs.tag }}
+
+      - name: Package release tarball
+        run: |
+          tar -czf pi-telegram-bot-${{ steps.version.outputs.tag }}.tar.gz \
+            dist/ bin/ package.json package-lock.json config.example.yaml README.md
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          files: pi-telegram-bot-${{ steps.version.outputs.tag }}.tar.gz
+          generate_release_notes: true
+
+      - name: Update Homebrew formula
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          TARBALL="pi-telegram-bot-${TAG}.tar.gz"
+          TARBALL_URL="https://github.com/adampetrovic/pi-telegram-bot/releases/download/${TAG}/${TARBALL}"
+          SHA256=$(sha256sum "${TARBALL}" | awk '{print $1}')
+
+          git clone https://x-access-token:${TAP_TOKEN}@github.com/adampetrovic/homebrew-tap.git tap
+          cd tap
+
+          cat > Formula/pi-telegram-bot.rb << 'FORMULA'
+          class PiTelegramBot < Formula
+            desc "Telegram bot that orchestrates pi coding agent sessions via RPC"
+            homepage "https://github.com/adampetrovic/pi-telegram-bot"
+            url "TARBALL_URL_PLACEHOLDER"
+            sha256 "SHA256_PLACEHOLDER"
+            version "VERSION_PLACEHOLDER"
+            license "MIT"
+            depends_on :macos
+            depends_on "node"
+
+            def install
+              system "npm", "ci", "--ignore-scripts", "--production"
+
+              libexec.install "dist", "node_modules", "package.json"
+              (libexec/"config.example.yaml").write (buildpath/"config.example.yaml").read
+
+              (bin/"pi-telegram-bot").write <<~EOS
+                #!/usr/bin/env bash
+                set -euo pipefail
+                export PATH="${HOME}/.local/share/mise/shims:/opt/homebrew/bin:${PATH}"
+                exec node "#{libexec}/dist/index.js"
+              EOS
+              chmod 0755, bin/"pi-telegram-bot"
+            end
+
+            service do
+              run [opt_bin/"pi-telegram-bot"]
+              keep_alive true
+              log_path var/"log/pi-telegram-bot.log"
+              error_log_path var/"log/pi-telegram-bot-error.log"
+              environment_variables PATH: "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+                                    HOME: ENV["HOME"]
+            end
+
+            def caveats
+              <<~EOS
+                Configure before starting:
+
+                  mkdir -p ~/.config/pi-telegram-bot
+                  cp #{libexec}/config.example.yaml ~/.config/pi-telegram-bot/config.yaml
+                  # Edit with your bot_token and chat_id
+
+                Start the service:
+
+                  brew services start pi-telegram-bot
+              EOS
+            end
+
+            test do
+              assert_predicate bin/"pi-telegram-bot", :exist?
+            end
+          end
+          FORMULA
+
+          # Strip leading whitespace from heredoc
+          sed -i 's/^          //' Formula/pi-telegram-bot.rb
+          # Substitute placeholders
+          sed -i "s|TARBALL_URL_PLACEHOLDER|${TARBALL_URL}|" Formula/pi-telegram-bot.rb
+          sed -i "s|SHA256_PLACEHOLDER|${SHA256}|" Formula/pi-telegram-bot.rb
+          sed -i "s|VERSION_PLACEHOLDER|${VERSION}|" Formula/pi-telegram-bot.rb
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/pi-telegram-bot.rb
+          git commit -m "pi-telegram-bot ${VERSION}"
+          git push

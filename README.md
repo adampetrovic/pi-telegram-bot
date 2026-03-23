@@ -32,20 +32,25 @@ npm install
 npm run build
 
 # Configure
-cp env.example ~/.pi/telegram-bot.env
-# Edit ~/.pi/telegram-bot.env with your bot token and chat ID
+mkdir -p ~/.config/pi-telegram-bot
+cp config.example.yaml ~/.config/pi-telegram-bot/config.yaml
+# Edit config.yaml with your bot token and chat ID
 ```
 
-### Environment Variables
+### Configuration
 
-Set these in `~/.pi/telegram-bot.env`:
+Edit `~/.config/pi-telegram-bot/config.yaml`:
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Yes | Bot token from @BotFather |
-| `TELEGRAM_CHAT_ID` | No | Restrict bot to a specific chat (recommended) |
-| `PI_TELEGRAM_CWD` | No | Default working directory for sessions (default: `~`) |
-| `PI_TELEGRAM_MODEL` | No | Default model, e.g. `anthropic/claude-sonnet-4-20250514` |
+```yaml
+telegram:
+  bot_token: "your-bot-token-from-botfather"
+  chat_id: 12345678  # optional, restricts to one chat
+
+pi:
+  cwd: ~/                          # default working directory
+  # model: anthropic/claude-sonnet-4-20250514  # optional
+  # session_dir: ~/.local/share/pi-telegram-bot/sessions
+```
 
 ### Run directly
 
@@ -103,6 +108,15 @@ Telegram ←→ pi-telegram-bot ←→ pi (RPC subprocess)
 6. The pi subprocess persists between messages, maintaining full conversation context
 
 Sessions are stored in `~/.pi/telegram-sessions/`.
+
+## Releasing
+
+Every push to `main` automatically:
+1. Bumps the patch version in `package.json`
+2. Creates a git tag and GitHub release with a built tarball
+3. Updates the Homebrew formula in [`adampetrovic/homebrew-tap`](https://github.com/adampetrovic/homebrew-tap)
+
+Requires `HOMEBREW_TAP_GITHUB_TOKEN` secret on the repo (a PAT with push access to the tap).
 
 ## License
 

@@ -36,12 +36,20 @@ bin/
 - `/model [pattern]` — Show or switch model
 - `/status` — Show session info
 
-## Environment Variables
+## Configuration
 
-- `TELEGRAM_BOT_TOKEN` — Required. Bot token from @BotFather
-- `TELEGRAM_CHAT_ID` — Optional. Restrict to specific chat
-- `PI_TELEGRAM_CWD` — Default working directory for new sessions (default: `~`)
-- `PI_TELEGRAM_MODEL` — Default model (e.g., `anthropic/claude-sonnet-4-20250514`)
+Config file: `~/.config/pi-telegram-bot/config.yaml`
+
+```yaml
+telegram:
+  bot_token: "..."       # Required — from @BotFather
+  chat_id: 12345678      # Optional — restrict to specific chat
+
+pi:
+  cwd: ~/                # Default working directory
+  model: ...             # Optional — default model
+  session_dir: ...       # Optional — session storage path
+```
 
 ## Development
 

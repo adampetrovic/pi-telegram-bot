@@ -1,0 +1,12 @@
+telegram:
+  bot_token: "your-bot-token-from-botfather"
+  # Restrict to a specific chat (recommended). Message @userinfobot to get your ID.
+  # chat_id: 12345678
+
+pi:
+  # Default working directory for new sessions
+  cwd: ~/
+  # Default model (optional — uses pi's default if not set)
+  # model: anthropic/claude-sonnet-4-20250514
+  # Where to store session files
+  # session_dir: ~/.local/share/pi-telegram-bot/sessions

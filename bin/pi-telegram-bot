@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Load environment from .env if present
-ENV_FILE="${HOME}/.pi/telegram-bot.env"
-if [[ -f "$ENV_FILE" ]]; then
-    set -a
-    source "$ENV_FILE"
-    set +a
-fi
-
 # Ensure mise shims are in PATH (for pi, node, ffmpeg, whisper-cli)
 export PATH="${HOME}/.local/share/mise/shims:${PATH}"
 

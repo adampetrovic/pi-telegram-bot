@@ -5,16 +5,13 @@
  * Runs as a brew service. Receives Telegram commands, manages long-running pi
  * sessions so context is preserved between messages.
  *
- * Environment:
- *   TELEGRAM_BOT_TOKEN  — Required
- *   TELEGRAM_CHAT_ID    — Optional, restrict to one chat
- *   PI_TELEGRAM_CWD     — Default cwd for sessions (default: ~)
- *   PI_TELEGRAM_MODEL   — Default model (e.g. anthropic/claude-sonnet-4-20250514)
+ * Configuration: ~/.config/pi-telegram-bot/config.yaml
  */
 
-import * as path from "node:path";
-import * as os from "node:os";
 import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { loadConfig } from "./config.js";
 import { TelegramClient, downloadBuffer, log, sleep } from "./telegram.js";
 import { PiSession } from "./pi-session.js";
 import { ActivityFeed, formatToolAction } from "./activity.js";
@@ -23,16 +20,12 @@ import type { RpcEvent, RpcAgentMessage, RpcContentBlock } from "./types.js";
 
 // ── Config ────────────────────────────────────────────────────────
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID ? parseInt(process.env.TELEGRAM_CHAT_ID, 10) : null;
-const DEFAULT_CWD = process.env.PI_TELEGRAM_CWD || os.homedir();
-const DEFAULT_MODEL = process.env.PI_TELEGRAM_MODEL;
-const SESSION_DIR = path.join(os.homedir(), ".pi", "telegram-sessions");
-
-if (!TELEGRAM_BOT_TOKEN) {
-	console.error("TELEGRAM_BOT_TOKEN is required");
-	process.exit(1);
-}
+const config = loadConfig();
+const DEFAULT_CWD = config.pi.cwd.startsWith("~")
+	? path.join(os.homedir(), config.pi.cwd.slice(1))
+	: config.pi.cwd;
+const DEFAULT_MODEL = config.pi.model;
+const SESSION_DIR = config.pi.session_dir;
 
 // Ensure session directory exists
 fs.mkdirSync(SESSION_DIR, { recursive: true });
@@ -572,7 +565,7 @@ async function handleVoice(chatId: number, fileId: string, caption?: string): Pr
 async function main(): Promise<void> {
 	log("Starting pi-telegram-bot");
 
-	telegram = new TelegramClient(TELEGRAM_BOT_TOKEN!);
+	telegram = new TelegramClient(config.telegram.bot_token);
 
 	try {
 		await telegram.init();
@@ -583,9 +576,9 @@ async function main(): Promise<void> {
 	}
 
 	// Notify allowed chat that bot is online
-	if (TELEGRAM_CHAT_ID) {
-		activeChatId = TELEGRAM_CHAT_ID;
-		telegram.sendLong(TELEGRAM_CHAT_ID, "🟢 Pi Telegram Bot started.").catch(() => {});
+	if (config.telegram.chat_id) {
+		activeChatId = config.telegram.chat_id;
+		telegram.sendLong(config.telegram.chat_id, "🟢 Pi Telegram Bot started.").catch(() => {});
 	}
 
 	// Polling loop
@@ -605,7 +598,7 @@ async function main(): Promise<void> {
 				const chatId = msg.chat.id;
 
 				// Chat restriction
-				if (TELEGRAM_CHAT_ID && chatId !== TELEGRAM_CHAT_ID) continue;
+				if (config.telegram.chat_id && chatId !== config.telegram.chat_id) continue;
 
 				messageCount.received++;
 
