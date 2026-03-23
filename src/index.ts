@@ -654,7 +654,7 @@ async function shutdown(signal: string): Promise<void> {
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
-// ── Start ─────────────────────────────────────────────────────────
+// ── Start ──────────────────────────────────────────────────────────
 
 main().catch((e) => {
 	console.error(`Fatal: ${e.message}`);
