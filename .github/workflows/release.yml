@@ -13,11 +13,10 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Skip version bump commits pushed by this workflow
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v4
         with:
@@ -31,7 +30,6 @@ jobs:
           PATCH=$((PATCH + 1))
           NEXT="${MAJOR}.${MINOR}.${PATCH}"
 
-          # Update package.json
           node -e "
             const fs = require('fs');
             const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
@@ -53,13 +51,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json
-          git commit -m "v${{ steps.version.outputs.version }}" || exit 0
+          git commit -m "v${{ steps.version.outputs.version }} [skip ci]" || exit 0
           git push
-
-      - name: Create tag
-        run: |
-          git tag ${{ steps.version.outputs.tag }}
-          git push origin ${{ steps.version.outputs.tag }}
 
       - name: Package release tarball
         run: |
@@ -142,9 +135,7 @@ jobs:
           end
           FORMULA
 
-          # Strip leading whitespace from heredoc
           sed -i 's/^          //' Formula/pi-telegram-bot.rb
-          # Substitute placeholders
           sed -i "s|TARBALL_URL_PLACEHOLDER|${TARBALL_URL}|" Formula/pi-telegram-bot.rb
           sed -i "s|SHA256_PLACEHOLDER|${SHA256}|" Formula/pi-telegram-bot.rb
           sed -i "s|VERSION_PLACEHOLDER|${VERSION}|" Formula/pi-telegram-bot.rb
