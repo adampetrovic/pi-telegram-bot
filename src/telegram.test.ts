@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { splitMessage, setLogLevel, log, debug, warn, error } from "./telegram.js";
+import { splitMessage, extractLinkEntities, setLogLevel, log, debug, warn, error } from "./telegram.js";
 
 describe("splitMessage", () => {
 	it("returns single chunk for short message", () => {
@@ -30,6 +30,47 @@ describe("splitMessage", () => {
 		const result = splitMessage(msg, 50);
 		expect(result.length).toBe(4);
 		expect(result.join("")).toBe(msg);
+	});
+});
+
+describe("extractLinkEntities", () => {
+	it("extracts a single markdown link", () => {
+		const { text, entities } = extractLinkEntities("Click [here](https://example.com) now");
+		expect(text).toBe("Click here now");
+		expect(entities).toEqual([
+			{ type: "text_link", offset: 6, length: 4, url: "https://example.com" },
+		]);
+	});
+
+	it("extracts multiple links", () => {
+		const { text, entities } = extractLinkEntities("[A](https://a.com) and [B](https://b.com)");
+		expect(text).toBe("A and B");
+		expect(entities).toEqual([
+			{ type: "text_link", offset: 0, length: 1, url: "https://a.com" },
+			{ type: "text_link", offset: 6, length: 1, url: "https://b.com" },
+		]);
+	});
+
+	it("supports custom URL schemes", () => {
+		const { text, entities } = extractLinkEntities("[Open](fantastical://show?date=2026-04-10)");
+		expect(text).toBe("Open");
+		expect(entities).toEqual([
+			{ type: "text_link", offset: 0, length: 4, url: "fantastical://show?date=2026-04-10" },
+		]);
+	});
+
+	it("returns original text and empty entities when no links", () => {
+		const { text, entities } = extractLinkEntities("No links here");
+		expect(text).toBe("No links here");
+		expect(entities).toEqual([]);
+	});
+
+	it("handles link at end of text", () => {
+		const { text, entities } = extractLinkEntities("See [docs](https://docs.com)");
+		expect(text).toBe("See docs");
+		expect(entities).toEqual([
+			{ type: "text_link", offset: 4, length: 4, url: "https://docs.com" },
+		]);
 	});
 });
 

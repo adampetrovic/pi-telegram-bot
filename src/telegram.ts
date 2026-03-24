@@ -53,9 +53,10 @@ export class TelegramClient {
 		return { updates, nextOffset };
 	}
 
-	async sendMessage(chatId: number, text: string, parseMode?: string): Promise<any> {
+	async sendMessage(chatId: number, text: string, parseMode?: string, entities?: any[]): Promise<any> {
 		const params: Record<string, any> = { chat_id: chatId, text };
 		if (parseMode) params.parse_mode = parseMode;
+		if (entities?.length) params.entities = entities;
 
 		for (let attempt = 0; attempt < 3; attempt++) {
 			try {
@@ -78,8 +79,10 @@ export class TelegramClient {
 			try {
 				await this.sendMessage(chatId, chunks[i], "Markdown");
 			} catch {
+				// Markdown failed — extract links as entities and send plain text
+				const { text: plainText, entities } = extractLinkEntities(chunks[i]);
 				try {
-					await this.sendMessage(chatId, chunks[i]);
+					await this.sendMessage(chatId, plainText, undefined, entities);
 				} catch (e: any) {
 					log(`Failed to send message to ${chatId}: ${e?.message}`);
 				}
@@ -152,6 +155,34 @@ export class TelegramClient {
 			req.end();
 		});
 	}
+}
+
+// ── Link Entity Extraction ────────────────────────────────────────
+
+/**
+ * Extract [text](url) markdown links from a string and return
+ * the plain text with `text_link` entities for Telegram's entities API.
+ * This supports any URL scheme (http, fantastical, shortcuts, etc.).
+ */
+export function extractLinkEntities(text: string): { text: string; entities: any[] } {
+	const entities: any[] = [];
+	const linkRe = /\[([^\]]+)\]\(([^)]+)\)/g;
+	let result = "";
+	let lastIndex = 0;
+	let match: RegExpExecArray | null;
+
+	while ((match = linkRe.exec(text)) !== null) {
+		// Append text before this link
+		result += text.slice(lastIndex, match.index);
+		const linkText = match[1];
+		const url = match[2];
+		const offset = result.length;
+		result += linkText;
+		entities.push({ type: "text_link", offset, length: linkText.length, url });
+		lastIndex = match.index + match[0].length;
+	}
+	result += text.slice(lastIndex);
+	return { text: result, entities };
 }
 
 // ── Message Splitting ─────────────────────────────────────────────
