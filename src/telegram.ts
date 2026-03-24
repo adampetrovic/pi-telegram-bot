@@ -76,18 +76,6 @@ export class TelegramClient {
 		const chunks = splitMessage(text, 4000);
 		for (let i = 0; i < chunks.length; i++) {
 			if (i > 0) await sleep(1000);
-			// If chunk contains custom-scheme links, skip Markdown (Telegram silently
-			// drops non-http(s) URLs) and go straight to entity-based sending.
-			const hasCustomSchemeLinks = /\[[^\]]+\]\((?!https?:\/\/)[^)]+\)/.test(chunks[i]);
-			if (hasCustomSchemeLinks) {
-				const { text: plainText, entities } = extractLinkEntities(chunks[i]);
-				try {
-					await this.sendMessage(chatId, plainText, undefined, entities);
-				} catch (e: any) {
-					log(`Failed to send message to ${chatId}: ${e?.message}`);
-				}
-				continue;
-			}
 			try {
 				await this.sendMessage(chatId, chunks[i], "Markdown");
 			} catch {
