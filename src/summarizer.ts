@@ -92,17 +92,17 @@ export class Summarizer {
 
 		// Send the system instructions as the first message
 		await this.rpcSend({ type: "prompt", message: SYSTEM_INSTRUCTIONS + "\n\nRespond with: ⏳ Ready" });
-		try {
-			await this.waitForAgentEnd(15_000);
-		} catch {
-			// If init times out, abort and try to recover
-			warn("[summarizer] Init timed out, aborting");
-			this.rpcSend({ type: "abort" }).catch(() => {});
-			await this.waitForAgentEnd(5_000).catch(() => {});
-		}
+		await this.waitForAgentEnd(15_000);
 
 		this._running = true;
 		log("[summarizer] Ready");
+	}
+
+	private restart(): void {
+		log("[summarizer] Restarting after failure");
+		this.stop().then(() => this.start()).catch((e) => {
+			warn(`[summarizer] Restart failed: ${e.message}`);
+		});
 	}
 
 	async stop(): Promise<void> {
@@ -124,30 +124,14 @@ export class Summarizer {
 	}
 
 	private busy = false;
-	private pending: { toolName: string; args: Record<string, unknown>; resolve: (text: string) => void } | null = null;
 
 	/**
 	 * Describe a tool call. Returns a human-readable status line.
-	 * If the summarizer is busy, queues the request (replacing any previous pending).
-	 * Falls back to a simple description on failure.
+	 * If the summarizer is busy from a previous request, returns fallback immediately.
 	 */
 	async describe(toolName: string, args: Record<string, unknown>): Promise<string> {
-		if (!this.isRunning) return fallbackDescription(toolName, args);
+		if (!this.isRunning || this.busy) return fallbackDescription(toolName, args);
 
-		// If busy, replace the pending request and return fallback immediately.
-		// The pending request will update the activity feed when it completes.
-		if (this.busy) {
-			// Cancel any existing pending — only latest matters
-			if (this.pending) this.pending.resolve(fallbackDescription(this.pending.toolName, this.pending.args));
-			return new Promise((resolve) => {
-				this.pending = { toolName, args, resolve };
-			});
-		}
-
-		return this.doDescribe(toolName, args);
-	}
-
-	private async doDescribe(toolName: string, args: Record<string, unknown>): Promise<string> {
 		this.busy = true;
 		const prompt = formatToolPrompt(toolName, args);
 
@@ -157,20 +141,12 @@ export class Summarizer {
 			const line = text.trim().split("\n")[0].trim();
 			return line || fallbackDescription(toolName, args);
 		} catch (e: any) {
-			warn(`[summarizer] describe failed: ${e.message}`);
-			// Abort the stuck request so the process is ready for the next one
-			this.rpcSend({ type: "abort" }).catch(() => {});
-			// Wait briefly for the abort to take effect
-			await this.waitForAgentEnd(3_000).catch(() => {});
+			debug(`[summarizer] describe failed: ${e.message}`);
+			// Process is likely stuck — restart it in the background
+			this.restart();
 			return fallbackDescription(toolName, args);
 		} finally {
 			this.busy = false;
-			// Process pending request if any
-			if (this.pending) {
-				const next = this.pending;
-				this.pending = null;
-				this.doDescribe(next.toolName, next.args).then(next.resolve);
-			}
 		}
 	}
 
