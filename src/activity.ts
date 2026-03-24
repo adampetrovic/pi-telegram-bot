@@ -20,6 +20,8 @@ export class ActivityFeed {
 	private editTimer: ReturnType<typeof setTimeout> | null = null;
 	private typingTimer: ReturnType<typeof setInterval> | null = null;
 	private describing = false; // true while waiting for summarizer
+	private ready = false; // true once start() has completed
+	private startPromise: Promise<void> | null = null;
 
 	// Latest tool call waiting to be described
 	private latestTool: { name: string; args: Record<string, unknown> } | null = null;
@@ -30,11 +32,16 @@ export class ActivityFeed {
 		this.summarizer = summarizer;
 	}
 
-	async start(): Promise<void> {
+	start(): void {
 		this.messageId = null;
 		this.lastEditTime = 0;
 		this.latestTool = null;
 		this.describing = false;
+		this.ready = false;
+		this.startPromise = this.doStart();
+	}
+
+	private async doStart(): Promise<void> {
 
 		try {
 			const result = await this.telegram.sendMessage(this.chatId, "⏳ Thinking...");
@@ -48,6 +55,10 @@ export class ActivityFeed {
 		this.typingTimer = setInterval(() => {
 			this.telegram.sendChatAction(this.chatId).catch(() => {});
 		}, 4000);
+
+		this.ready = true;
+		// Flush any tools that arrived during setup
+		if (this.latestTool) this.scheduleFlush();
 	}
 
 	/** Set status text directly — no summarizer, edits immediately (rate-limited). */
@@ -64,6 +75,11 @@ export class ActivityFeed {
 	}
 
 	async stop(): Promise<void> {
+		// Wait for start() to finish so we have a messageId to delete
+		if (this.startPromise) {
+			await this.startPromise;
+			this.startPromise = null;
+		}
 		if (this.typingTimer) {
 			clearInterval(this.typingTimer);
 			this.typingTimer = null;
@@ -80,7 +96,7 @@ export class ActivityFeed {
 	}
 
 	private scheduleFlush(): void {
-		if (!this.messageId || this.describing) return;
+		if (!this.ready || !this.messageId || this.describing) return;
 
 		const now = Date.now();
 		const elapsed = now - this.lastEditTime;
