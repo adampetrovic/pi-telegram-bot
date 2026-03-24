@@ -7,6 +7,8 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { parse as parseYaml } from "yaml";
 
+export type LogLevel = "debug" | "info" | "warn" | "error";
+
 export interface Config {
 	telegram: {
 		bot_token: string;
@@ -17,6 +19,7 @@ export interface Config {
 		model?: string;
 		session_dir: string;
 	};
+	log_level: LogLevel;
 }
 
 const CONFIG_DIR = path.join(os.homedir(), ".config", "pi-telegram-bot");
@@ -47,5 +50,6 @@ export function loadConfig(): Config {
 			model: parsed.pi?.model ?? undefined,
 			session_dir: parsed.pi?.session_dir ?? path.join(os.homedir(), ".local", "share", "pi-telegram-bot", "sessions"),
 		},
+		log_level: (["debug", "info", "warn", "error"].includes(parsed.log_level) ? parsed.log_level : "info") as LogLevel,
 	};
 }

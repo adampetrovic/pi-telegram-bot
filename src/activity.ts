@@ -7,6 +7,7 @@
 
 import type { TelegramClient } from "./telegram.js";
 import type { Summarizer } from "./summarizer.js";
+import { debug } from "./telegram.js";
 
 const MIN_EDIT_INTERVAL_MS = 3000;
 
@@ -15,13 +16,13 @@ export class ActivityFeed {
 	private chatId: number;
 	private summarizer: Summarizer | null;
 	private messageId: number | null = null;
-	private displayedText = "⏳ Thinking...";
 	private lastEditTime = 0;
 	private editTimer: ReturnType<typeof setTimeout> | null = null;
+	private typingTimer: ReturnType<typeof setInterval> | null = null;
+	private describing = false; // true while waiting for summarizer
 
 	// Latest tool call waiting to be described
 	private latestTool: { name: string; args: Record<string, unknown> } | null = null;
-	private dirty = false; // true if latestTool changed since last flush
 
 	constructor(telegram: TelegramClient, chatId: number, summarizer: Summarizer | null) {
 		this.telegram = telegram;
@@ -30,41 +31,43 @@ export class ActivityFeed {
 	}
 
 	async start(): Promise<void> {
-		this.displayedText = "⏳ Thinking...";
 		this.messageId = null;
 		this.lastEditTime = 0;
 		this.latestTool = null;
-		this.dirty = false;
+		this.describing = false;
 
 		try {
-			const result = await this.telegram.sendMessage(this.chatId, this.displayedText);
+			const result = await this.telegram.sendMessage(this.chatId, "⏳ Thinking...");
 			if (result?.message_id) {
 				this.messageId = result.message_id;
 			}
-		} catch {}
+		} catch { /* ignored */ }
+
+		// Keep typing indicator alive (expires after 5s)
+		this.telegram.sendChatAction(this.chatId).catch(() => {});
+		this.typingTimer = setInterval(() => {
+			this.telegram.sendChatAction(this.chatId).catch(() => {});
+		}, 4000);
 	}
 
 	/** Set status text directly — no summarizer, edits immediately (rate-limited). */
 	setStatus(text: string): void {
-		this.dirty = false; // cancel any pending tool description
-		this.displayedText = text;
-		if (!this.messageId) return;
-
-		const now = Date.now();
-		if (now - this.lastEditTime >= MIN_EDIT_INTERVAL_MS) {
-			this.lastEditTime = now;
-			this.telegram.editMessage(this.chatId, this.messageId, text);
-		}
+		this.latestTool = null;
+		this.doEdit(text);
 	}
 
-	/** Record a tool call. Cheap — no LLM call, no Telegram edit. */
+	/** Record a tool call. Cheap — no LLM call, no Telegram edit yet. */
 	recordTool(toolName: string, args: Record<string, unknown>): void {
+		debug(`activity: recordTool ${toolName}`);
 		this.latestTool = { name: toolName, args };
-		this.dirty = true;
 		this.scheduleFlush();
 	}
 
 	async stop(): Promise<void> {
+		if (this.typingTimer) {
+			clearInterval(this.typingTimer);
+			this.typingTimer = null;
+		}
 		if (this.editTimer) {
 			clearTimeout(this.editTimer);
 			this.editTimer = null;
@@ -77,7 +80,7 @@ export class ActivityFeed {
 	}
 
 	private scheduleFlush(): void {
-		if (!this.messageId) return;
+		if (!this.messageId || this.describing) return;
 
 		const now = Date.now();
 		const elapsed = now - this.lastEditTime;
@@ -90,23 +93,41 @@ export class ActivityFeed {
 				this.flush();
 			}, MIN_EDIT_INTERVAL_MS - elapsed);
 		}
-		// If timer already set, it will pick up the latest tool on fire
 	}
 
 	private flush(): void {
-		if (!this.messageId || !this.dirty || !this.latestTool) return;
-		if (this.telegram.rateLimitedUntil > Date.now()) return;
+		if (!this.messageId || !this.latestTool) {
+			debug(`activity: flush skipped (messageId=${!!this.messageId}, latestTool=${!!this.latestTool})`);
+			return;
+		}
+		if (this.telegram.rateLimitedUntil > Date.now()) {
+			debug("activity: flush skipped (rate limited)");
+			return;
+		}
 
 		const tool = this.latestTool;
-		this.dirty = false;
-		this.lastEditTime = Date.now();
+		this.latestTool = null;
+		this.describing = true;
+		debug(`activity: flush → describing ${tool.name}`);
 
-		// Get description (async) then edit the message
-		this.getDescription(tool.name, tool.args).then((text) => {
-			if (!this.messageId) return;
-			this.displayedText = text;
-			this.telegram.editMessage(this.chatId, this.messageId, text);
-		});
+		this.getDescription(tool.name, tool.args)
+			.then((text) => {
+				this.describing = false;
+				debug(`activity: described as "${text}"`);
+				this.doEdit(text);
+				if (this.latestTool) this.scheduleFlush();
+			})
+			.catch((e) => {
+				this.describing = false;
+				debug(`activity: describe failed: ${e}`);
+				if (this.latestTool) this.scheduleFlush();
+			});
+	}
+
+	private doEdit(text: string): void {
+		if (!this.messageId) return;
+		this.lastEditTime = Date.now();
+		this.telegram.editMessage(this.chatId, this.messageId, text);
 	}
 
 	private async getDescription(toolName: string, args: Record<string, unknown>): Promise<string> {

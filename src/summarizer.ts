@@ -7,7 +7,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { log } from "./telegram.js";
+import { log, debug, warn } from "./telegram.js";
 
 const PI_BIN = process.env.PI_BIN || "pi";
 const MODEL = "anthropic/claude-haiku-4-5";
@@ -67,7 +67,7 @@ export class Summarizer {
 
 		this.process.stderr?.on("data", (chunk: Buffer) => {
 			const text = chunk.toString().trim();
-			if (text) log(`[summarizer stderr] ${text}`);
+			if (text) debug(`[summarizer stderr] ${text}`);
 		});
 
 		this.process.on("exit", (code, signal) => {
@@ -150,7 +150,7 @@ export class Summarizer {
 			const line = text.trim().split("\n")[0].trim();
 			return line || fallbackDescription(toolName, args);
 		} catch (e: any) {
-			log(`[summarizer] describe failed: ${e.message}`);
+			warn(`[summarizer] describe failed: ${e.message}`);
 			return fallbackDescription(toolName, args);
 		} finally {
 			this.busy = false;
@@ -215,7 +215,7 @@ export class Summarizer {
 			try {
 				const msg = JSON.parse(line);
 				this.handleMessage(msg);
-			} catch {}
+			} catch { /* ignored */ }
 		}
 	}
 

@@ -11,10 +11,42 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  lint:
     runs-on: ubuntu-latest
-    # Skip version bump commits pushed by this workflow
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - run: npm run lint
+
+  build:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - run: npm run build
+
+  test:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - run: npm run test
+
+  release:
+    needs: [lint, build, test]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 

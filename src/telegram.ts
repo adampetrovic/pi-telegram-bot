@@ -214,7 +214,23 @@ export function sleep(ms: number): Promise<void> {
 	return new Promise((r) => setTimeout(r, ms));
 }
 
-export function log(msg: string): void {
+// ── Logging ───────────────────────────────────────────────────────
+
+import type { LogLevel } from "./config.js";
+
+const LEVELS: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+let _level: number = LEVELS.info;
+
+export function setLogLevel(level: LogLevel): void { _level = LEVELS[level]; }
+
+function emit(level: LogLevel, msg: string): void {
+	if (LEVELS[level] < _level) return;
 	const ts = new Date().toISOString();
-	console.log(`[${ts}] ${msg}`);
+	const tag = level === "info" ? "" : ` [${level.toUpperCase()}]`;
+	console.log(`[${ts}]${tag} ${msg}`);
 }
+
+export function debug(msg: string): void { emit("debug", msg); }
+export function log(msg: string): void { emit("info", msg); }
+export function warn(msg: string): void { emit("warn", msg); }
+export function error(msg: string): void { emit("error", msg); }

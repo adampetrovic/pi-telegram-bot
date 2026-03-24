@@ -3,7 +3,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { log } from "./telegram.js";
+import { log, debug, warn } from "./telegram.js";
 import type { RpcCommand, RpcResponse, RpcEvent, RpcSessionState } from "./types.js";
 
 export type EventHandler = (event: RpcEvent) => void;
@@ -67,7 +67,7 @@ export class PiSession {
 
 		this.process.stderr?.on("data", (chunk: Buffer) => {
 			const text = chunk.toString().trim();
-			if (text) log(`[pi stderr] ${text}`);
+			if (text) debug(`[pi stderr] ${text}`);
 		});
 
 		this.process.on("exit", (code, signal) => {
@@ -215,8 +215,8 @@ export class PiSession {
 			try {
 				const msg = JSON.parse(line);
 				this.handleMessage(msg);
-			} catch (e) {
-				log(`Failed to parse RPC message: ${line.slice(0, 200)}`);
+			} catch {
+				warn(`Failed to parse RPC message: ${line.slice(0, 200)}`);
 			}
 		}
 	}

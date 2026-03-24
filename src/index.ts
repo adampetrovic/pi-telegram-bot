@@ -12,7 +12,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { loadConfig } from "./config.js";
-import { TelegramClient, downloadBuffer, log, sleep } from "./telegram.js";
+import { TelegramClient, downloadBuffer, log, debug, warn, error, setLogLevel, sleep } from "./telegram.js";
 import { PiSession } from "./pi-session.js";
 import { ActivityFeed } from "./activity.js";
 import { Summarizer } from "./summarizer.js";
@@ -23,6 +23,8 @@ import type { RpcEvent, RpcAgentMessage, RpcContentBlock } from "./types.js";
 // ── Config ────────────────────────────────────────────────────────
 
 const config = loadConfig();
+setLogLevel(config.log_level);
+
 const DEFAULT_CWD = config.pi.cwd.startsWith("~")
 	? path.join(os.homedir(), config.pi.cwd.slice(1))
 	: config.pi.cwd;
@@ -39,7 +41,7 @@ let piSession: PiSession | null = null;
 let activityFeed: ActivityFeed | null = null;
 let summarizer: Summarizer | null = null;
 let activeChatId: number | null = null;
-let messageCount = { sent: 0, received: 0 };
+const messageCount = { sent: 0, received: 0 };
 let shuttingDown = false;
 let suppressNextResponse = false; // Suppress format instructions ack
 let sessionInitPromise: Promise<void> | null = null; // Gate concurrent access during init
@@ -63,11 +65,15 @@ const TELEGRAM_FORMAT_INSTRUCTIONS = `Important: Your responses will be displaye
 async function ensureSession(chatId: number): Promise<PiSession> {
 	// Wait for any in-progress init to finish
 	if (sessionInitPromise) {
+		debug("ensureSession: waiting for in-progress init");
 		await sessionInitPromise;
 		if (piSession?.isRunning) return piSession;
 	}
 
-	if (piSession?.isRunning) return piSession;
+	if (piSession?.isRunning) {
+		debug("ensureSession: reusing existing session");
+		return piSession;
+	}
 
 	log(`Creating new pi session for chat ${chatId}`);
 	activeChatId = chatId;
@@ -81,15 +87,17 @@ async function ensureSession(chatId: number): Promise<PiSession> {
 	piSession.onEvent((event) => handlePiEvent(chatId, event));
 
 	const doInit = async () => {
+		debug("ensureSession: starting pi RPC process");
 		await piSession!.start();
 
 		// Inject formatting instructions — suppress the ack from being sent to Telegram
 		try {
+			debug("ensureSession: injecting format instructions (suppress=true)");
 			suppressNextResponse = true;
 			await piSession!.prompt(TELEGRAM_FORMAT_INSTRUCTIONS + "\n\nAcknowledge briefly that you understand the formatting rules.");
 			await waitForIdle(piSession!, 30_000);
 		} catch (e: any) {
-			log(`Warning: Failed to inject format instructions: ${e.message}`);
+			warn(` Failed to inject format instructions: ${e.message}`);
 			suppressNextResponse = false;
 		}
 	};
@@ -98,6 +106,7 @@ async function ensureSession(chatId: number): Promise<PiSession> {
 	await sessionInitPromise;
 	sessionInitPromise = null;
 
+	debug("ensureSession: init complete, session ready");
 	return piSession;
 }
 
@@ -145,6 +154,7 @@ function waitForIdle(session: PiSession, timeout = 120_000): Promise<void> {
 function handlePiEvent(chatId: number, event: RpcEvent): void {
 	switch (event.type) {
 		case "agent_start":
+			debug(`event: agent_start (suppress=${suppressNextResponse})`);
 			if (!suppressNextResponse) {
 				activityFeed = new ActivityFeed(telegram, chatId, summarizer);
 				activityFeed.start();
@@ -154,11 +164,13 @@ function handlePiEvent(chatId: number, event: RpcEvent): void {
 		case "tool_execution_start": {
 			const toolName = (event as any).toolName || "";
 			const args = (event as any).args || {};
+			debug(`event: tool_execution_start ${toolName} ${args.path || args.command?.slice(0, 60) || ""}`);
 			activityFeed?.recordTool(toolName, args);
 			break;
 		}
 
 		case "agent_end":
+			debug(`event: agent_end (suppress=${suppressNextResponse})`);
 			handleAgentEnd(chatId, event);
 			break;
 
@@ -171,7 +183,7 @@ function handlePiEvent(chatId: number, event: RpcEvent): void {
 			break;
 
 		case "extension_error":
-			log(`Extension error: ${(event as any).error}`);
+			error(`Extension: ${(event as any).error}`);
 			break;
 	}
 }
@@ -319,7 +331,7 @@ async function handleNew(chatId: number, args: string): Promise<void> {
 			await piSession.prompt(TELEGRAM_FORMAT_INSTRUCTIONS + "\n\nAcknowledge briefly.");
 			await waitForIdle(piSession, 30_000);
 		} catch (e: any) {
-			log(`Warning: Failed to inject format instructions: ${e.message}`);
+			warn(` Failed to inject format instructions: ${e.message}`);
 			suppressNextResponse = false;
 		}
 
@@ -612,19 +624,23 @@ async function handleDetach(chatId: number): Promise<void> {
 // ── Message Handling ──────────────────────────────────────────────
 
 async function handleMessage(chatId: number, text: string): Promise<void> {
+	debug(`handleMessage: "${text.slice(0, 80)}"`);
 	await telegram.sendChatAction(chatId);
 
 	try {
 		const session = await ensureSession(chatId);
+		debug(`handleMessage: session ready, isStreaming=${session.isStreaming}`);
 
 		if (session.isStreaming) {
-			// Agent is busy — queue as follow-up by default
+			debug("handleMessage: agent busy, queuing as follow-up");
 			await session.followUp(text);
 			await telegram.sendLong(chatId, "📋 Queued as follow-up.");
 		} else {
+			debug("handleMessage: sending prompt");
 			await session.prompt(text);
 		}
 	} catch (e: any) {
+		debug(`handleMessage: error: ${e.message}`);
 		await telegram.sendLong(chatId, `⚠️ Failed: ${e.message}`);
 	}
 }
@@ -693,7 +709,7 @@ async function main(): Promise<void> {
 	try {
 		await summarizer.start();
 	} catch (e: any) {
-		log(`Warning: Summarizer failed to start: ${e.message}. Using fallback descriptions.`);
+		warn(` Summarizer failed to start: ${e.message}. Using fallback descriptions.`);
 		summarizer = null;
 	}
 
@@ -726,32 +742,32 @@ async function main(): Promise<void> {
 
 				if (msg.voice) {
 					handleVoice(chatId, msg.voice.file_id, msg.caption).catch((e) =>
-						log(`Voice handler error: ${e.message}`),
+						warn(`Voice handler error: ${e.message}`),
 					);
 				} else if (msg.photo) {
 					const photo = msg.photo[msg.photo.length - 1];
 					handlePhoto(chatId, photo.file_id, msg.caption).catch((e) =>
-						log(`Photo handler error: ${e.message}`),
+						warn(`Photo handler error: ${e.message}`),
 					);
 				} else if (msg.document?.mime_type?.startsWith("image/")) {
 					handlePhoto(chatId, msg.document.file_id, msg.caption).catch((e) =>
-						log(`Document handler error: ${e.message}`),
+						warn(`Document handler error: ${e.message}`),
 					);
 				} else if (msg.text) {
 					if (msg.text.startsWith("/")) {
 						handleCommand(chatId, msg.text).catch((e) =>
-							log(`Command handler error: ${e.message}`),
+							warn(`Command handler error: ${e.message}`),
 						);
 					} else {
 						handleMessage(chatId, msg.text).catch((e) =>
-							log(`Message handler error: ${e.message}`),
+							warn(`Message handler error: ${e.message}`),
 						);
 					}
 				}
 			}
 		} catch (e: any) {
 			if (shuttingDown) break;
-			log(`Polling error: ${e.message}`);
+			warn(`Polling error: ${e.message}`);
 			await sleep(5000);
 		}
 	}

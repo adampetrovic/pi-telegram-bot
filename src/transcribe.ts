@@ -6,7 +6,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { execFile } from "node:child_process";
-import { downloadFile, log } from "./telegram.js";
+import { downloadFile } from "./telegram.js";
 
 const WHISPER_MODEL = path.join(os.homedir(), ".local/share/whisper-cpp/models/ggml-large-v3-turbo.bin");
 
