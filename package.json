@@ -1,6 +1,6 @@
 {
   "name": "pi-telegram-bot",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Telegram bot that orchestrates pi coding agent sessions via RPC",
   "type": "module",
   "main": "dist/index.js",
