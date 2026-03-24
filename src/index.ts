@@ -193,6 +193,9 @@ async function handleAgentEnd(chatId: number, event: RpcEvent): Promise<void> {
 	const suppress = suppressNextResponse;
 	suppressNextResponse = false;
 
+	// Don't send format instructions ack to the user
+	if (suppress) return;
+
 	// Brief pause to let last edit land
 	await sleep(500);
 
@@ -200,9 +203,6 @@ async function handleAgentEnd(chatId: number, event: RpcEvent): Promise<void> {
 		await activityFeed.stop();
 		activityFeed = null;
 	}
-
-	// Don't send format instructions ack to the user
-	if (suppress) return;
 
 	// Extract text from the last assistant message
 	const messages = (event as any).messages as RpcAgentMessage[] | undefined;
