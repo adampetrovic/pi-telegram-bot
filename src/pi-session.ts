@@ -167,6 +167,14 @@ export class PiSession {
 		return data.text;
 	}
 
+	async setThinkingLevel(level: string): Promise<void> {
+		await this.send({ type: "set_thinking_level", level });
+	}
+
+	async cycleThinkingLevel(): Promise<{ level: string } | null> {
+		return (await this.send({ type: "cycle_thinking_level" })) as { level: string } | null;
+	}
+
 	// ── Internal ──────────────────────────────────────────────────
 
 	private send(command: RpcCommand): Promise<unknown> {

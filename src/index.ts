@@ -14,7 +14,9 @@ import * as path from "node:path";
 import { loadConfig } from "./config.js";
 import { TelegramClient, downloadBuffer, log, sleep } from "./telegram.js";
 import { PiSession } from "./pi-session.js";
-import { ActivityFeed, formatToolAction } from "./activity.js";
+import { ActivityFeed } from "./activity.js";
+import { Summarizer } from "./summarizer.js";
+
 import { transcribeVoice } from "./transcribe.js";
 import type { RpcEvent, RpcAgentMessage, RpcContentBlock } from "./types.js";
 
@@ -35,9 +37,12 @@ fs.mkdirSync(SESSION_DIR, { recursive: true });
 let telegram: TelegramClient;
 let piSession: PiSession | null = null;
 let activityFeed: ActivityFeed | null = null;
+let summarizer: Summarizer | null = null;
 let activeChatId: number | null = null;
 let messageCount = { sent: 0, received: 0 };
 let shuttingDown = false;
+let suppressNextResponse = false; // Suppress format instructions ack
+let sessionInitPromise: Promise<void> | null = null; // Gate concurrent access during init
 
 // ── Telegram System Prompt Injection ──────────────────────────────
 // We inject Telegram formatting rules as the first message in each session.
@@ -56,6 +61,12 @@ const TELEGRAM_FORMAT_INSTRUCTIONS = `Important: Your responses will be displaye
 // ── Pi Session Management ─────────────────────────────────────────
 
 async function ensureSession(chatId: number): Promise<PiSession> {
+	// Wait for any in-progress init to finish
+	if (sessionInitPromise) {
+		await sessionInitPromise;
+		if (piSession?.isRunning) return piSession;
+	}
+
 	if (piSession?.isRunning) return piSession;
 
 	log(`Creating new pi session for chat ${chatId}`);
@@ -69,17 +80,23 @@ async function ensureSession(chatId: number): Promise<PiSession> {
 
 	piSession.onEvent((event) => handlePiEvent(chatId, event));
 
-	await piSession.start();
+	const doInit = async () => {
+		await piSession!.start();
 
-	// Inject formatting instructions as first prompt context
-	// We send a system-level hint via the first user message
-	try {
-		await piSession.prompt(TELEGRAM_FORMAT_INSTRUCTIONS + "\n\nAcknowledge briefly that you understand the formatting rules.");
-		// Wait for the response to complete before accepting user messages
-		await waitForIdle(piSession, 30_000);
-	} catch (e: any) {
-		log(`Warning: Failed to inject format instructions: ${e.message}`);
-	}
+		// Inject formatting instructions — suppress the ack from being sent to Telegram
+		try {
+			suppressNextResponse = true;
+			await piSession!.prompt(TELEGRAM_FORMAT_INSTRUCTIONS + "\n\nAcknowledge briefly that you understand the formatting rules.");
+			await waitForIdle(piSession!, 30_000);
+		} catch (e: any) {
+			log(`Warning: Failed to inject format instructions: ${e.message}`);
+			suppressNextResponse = false;
+		}
+	};
+
+	sessionInitPromise = doInit();
+	await sessionInitPromise;
+	sessionInitPromise = null;
 
 	return piSession;
 }
@@ -97,17 +114,14 @@ async function destroySession(): Promise<void> {
 
 function waitForIdle(session: PiSession, timeout = 120_000): Promise<void> {
 	return new Promise((resolve, reject) => {
-		if (!session.isStreaming) {
-			resolve();
-			return;
-		}
-
 		const timer = setTimeout(() => {
 			cleanup();
 			reject(new Error("Timeout waiting for idle"));
 		}, timeout);
 
 		const originalHandler = (session as any).eventHandler;
+		let sawAgentStart = session.isStreaming; // might already be streaming
+
 		const cleanup = () => {
 			clearTimeout(timer);
 			(session as any).eventHandler = originalHandler;
@@ -115,7 +129,10 @@ function waitForIdle(session: PiSession, timeout = 120_000): Promise<void> {
 
 		(session as any).eventHandler = (event: RpcEvent) => {
 			originalHandler?.(event);
-			if (event.type === "agent_end") {
+			if (event.type === "agent_start") {
+				sawAgentStart = true;
+			}
+			if (event.type === "agent_end" && sawAgentStart) {
 				cleanup();
 				resolve();
 			}
@@ -128,15 +145,16 @@ function waitForIdle(session: PiSession, timeout = 120_000): Promise<void> {
 function handlePiEvent(chatId: number, event: RpcEvent): void {
 	switch (event.type) {
 		case "agent_start":
-			activityFeed = new ActivityFeed(telegram, chatId);
-			activityFeed.start();
+			if (!suppressNextResponse) {
+				activityFeed = new ActivityFeed(telegram, chatId, summarizer);
+				activityFeed.start();
+			}
 			break;
 
 		case "tool_execution_start": {
 			const toolName = (event as any).toolName || "";
 			const args = (event as any).args || {};
-			const line = formatToolAction(toolName, args);
-			activityFeed?.push(line);
+			activityFeed?.recordTool(toolName, args);
 			break;
 		}
 
@@ -145,11 +163,11 @@ function handlePiEvent(chatId: number, event: RpcEvent): void {
 			break;
 
 		case "auto_compaction_start":
-			activityFeed?.push("🗜️ Compacting context...");
+			activityFeed?.setStatus("🗜️ Compacting context...");
 			break;
 
 		case "auto_retry_start":
-			activityFeed?.push(`🔄 Retrying (attempt ${(event as any).attempt})...`);
+			activityFeed?.setStatus(`🔄 Retrying (attempt ${(event as any).attempt})...`);
 			break;
 
 		case "extension_error":
@@ -159,6 +177,10 @@ function handlePiEvent(chatId: number, event: RpcEvent): void {
 }
 
 async function handleAgentEnd(chatId: number, event: RpcEvent): Promise<void> {
+	// Capture the flag before any async work — it may be cleared by the caller
+	const suppress = suppressNextResponse;
+	suppressNextResponse = false;
+
 	// Brief pause to let last edit land
 	await sleep(500);
 
@@ -166,6 +188,9 @@ async function handleAgentEnd(chatId: number, event: RpcEvent): Promise<void> {
 		await activityFeed.stop();
 		activityFeed = null;
 	}
+
+	// Don't send format instructions ack to the user
+	if (suppress) return;
 
 	// Extract text from the last assistant message
 	const messages = (event as any).messages as RpcAgentMessage[] | undefined;
@@ -242,8 +267,16 @@ async function handleCommand(chatId: number, text: string): Promise<void> {
 			await handleModel(chatId, args);
 			return;
 
+		case "/thinking":
+			await handleThinking(chatId, args);
+			return;
+
 		case "/status":
 			await handleStatus(chatId);
+			return;
+
+		case "/detach":
+			await handleDetach(chatId);
 			return;
 
 		default:
@@ -280,9 +313,15 @@ async function handleNew(chatId: number, args: string): Promise<void> {
 	try {
 		await piSession.start();
 
-		// Inject formatting instructions
-		await piSession.prompt(TELEGRAM_FORMAT_INSTRUCTIONS + "\n\nAcknowledge briefly.");
-		await waitForIdle(piSession, 30_000);
+		// Inject formatting instructions — suppress ack
+		try {
+			suppressNextResponse = true;
+			await piSession.prompt(TELEGRAM_FORMAT_INSTRUCTIONS + "\n\nAcknowledge briefly.");
+			await waitForIdle(piSession, 30_000);
+		} catch (e: any) {
+			log(`Warning: Failed to inject format instructions: ${e.message}`);
+			suppressNextResponse = false;
+		}
 
 		await telegram.sendLong(chatId, `🆕 New session started.\n📂 Working directory: \`${resolvedCwd}\``);
 	} catch (e: any) {
@@ -461,6 +500,45 @@ async function handleModel(chatId: number, args: string): Promise<void> {
 	}
 }
 
+const VALID_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
+
+async function handleThinking(chatId: number, args: string): Promise<void> {
+	if (!piSession?.isRunning) {
+		await telegram.sendLong(chatId, "ℹ️ No active session. Start one first with /new.");
+		return;
+	}
+
+	if (!args) {
+		// Show current thinking level
+		try {
+			const state = await piSession.getState();
+			await telegram.sendLong(
+				chatId,
+				`💭 Current thinking level: \`${state.thinkingLevel}\`\n\nAvailable: ${VALID_THINKING_LEVELS.map(l => `\`${l}\``).join(", ")}`,
+			);
+		} catch (e: any) {
+			await telegram.sendLong(chatId, `⚠️ Failed to get thinking level: ${e.message}`);
+		}
+		return;
+	}
+
+	const level = args.toLowerCase().trim();
+	if (!VALID_THINKING_LEVELS.includes(level)) {
+		await telegram.sendLong(
+			chatId,
+			`⚠️ Invalid thinking level: \`${level}\`\n\nValid levels: ${VALID_THINKING_LEVELS.map(l => `\`${l}\``).join(", ")}`,
+		);
+		return;
+	}
+
+	try {
+		await piSession.setThinkingLevel(level);
+		await telegram.sendLong(chatId, `💭 Thinking level set to \`${level}\``);
+	} catch (e: any) {
+		await telegram.sendLong(chatId, `⚠️ Failed to set thinking level: ${e.message}`);
+	}
+}
+
 async function handleStatus(chatId: number): Promise<void> {
 	if (!piSession?.isRunning) {
 		await telegram.sendLong(chatId, "📊 *Status*\n\nNo active session.\nUse /new to start one.");
@@ -493,6 +571,41 @@ async function handleStatus(chatId: number): Promise<void> {
 		await telegram.sendLong(chatId, lines.join("\n"));
 	} catch (e: any) {
 		await telegram.sendLong(chatId, `⚠️ Failed to get status: ${e.message}`);
+	}
+}
+
+async function handleDetach(chatId: number): Promise<void> {
+	if (!piSession?.isRunning) {
+		await telegram.sendLong(chatId, "ℹ️ No active session to detach.");
+		return;
+	}
+
+	try {
+		const state = await piSession.getState();
+		const sessionFile = state.sessionFile;
+
+		if (!sessionFile) {
+			await telegram.sendLong(chatId, "⚠️ Session has no file (ephemeral). Cannot detach.");
+			return;
+		}
+
+		// Stop the RPC process — releases the session file
+		await destroySession();
+
+		const lines = [
+			"🔌 *Session detached*",
+			"",
+			"Attach from your terminal:",
+			`\`\`\``,
+			`pi --session ${sessionFile}`,
+			`\`\`\``,
+			"",
+			"When done, send /new here to start a fresh session.",
+		];
+
+		await telegram.sendLong(chatId, lines.join("\n"));
+	} catch (e: any) {
+		await telegram.sendLong(chatId, `⚠️ Detach failed: ${e.message}`);
 	}
 }
 
@@ -575,6 +688,15 @@ async function main(): Promise<void> {
 		process.exit(1);
 	}
 
+	// Start summarizer (Haiku) for human-readable activity descriptions
+	summarizer = new Summarizer();
+	try {
+		await summarizer.start();
+	} catch (e: any) {
+		log(`Warning: Summarizer failed to start: ${e.message}. Using fallback descriptions.`);
+		summarizer = null;
+	}
+
 	// Notify allowed chat that bot is online
 	if (config.telegram.chat_id) {
 		activeChatId = config.telegram.chat_id;
@@ -647,6 +769,7 @@ async function shutdown(signal: string): Promise<void> {
 	}
 
 	await destroySession();
+	if (summarizer) await summarizer.stop();
 	log("Shutdown complete");
 	process.exit(0);
 }

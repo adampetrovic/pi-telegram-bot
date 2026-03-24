@@ -30,7 +30,10 @@ export class TelegramClient {
 				{ command: "followup", description: "Queue message for later — /followup <message>" },
 				{ command: "compact", description: "Compact session context" },
 				{ command: "model", description: "Show or switch model — /model [pattern]" },
+				{ command: "thinking", description: "Set thinking level — /thinking [off|minimal|low|medium|high|xhigh]" },
+				{ command: "thinking", description: "Set thinking level — /thinking [off|minimal|low|medium|high]" },
 				{ command: "status", description: "Show session info" },
+				{ command: "detach", description: "Detach session for terminal use" },
 			],
 		}).catch(() => {});
 
