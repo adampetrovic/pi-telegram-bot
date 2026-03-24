@@ -92,7 +92,14 @@ export class Summarizer {
 
 		// Send the system instructions as the first message
 		await this.rpcSend({ type: "prompt", message: SYSTEM_INSTRUCTIONS + "\n\nRespond with: ⏳ Ready" });
-		await this.waitForAgentEnd(10_000);
+		try {
+			await this.waitForAgentEnd(15_000);
+		} catch {
+			// If init times out, abort and try to recover
+			warn("[summarizer] Init timed out, aborting");
+			this.rpcSend({ type: "abort" }).catch(() => {});
+			await this.waitForAgentEnd(5_000).catch(() => {});
+		}
 
 		this._running = true;
 		log("[summarizer] Ready");
@@ -146,11 +153,15 @@ export class Summarizer {
 
 		try {
 			await this.rpcSend({ type: "prompt", message: prompt });
-			const text = await this.waitForAgentEnd(8_000);
+			const text = await this.waitForAgentEnd(5_000);
 			const line = text.trim().split("\n")[0].trim();
 			return line || fallbackDescription(toolName, args);
 		} catch (e: any) {
 			warn(`[summarizer] describe failed: ${e.message}`);
+			// Abort the stuck request so the process is ready for the next one
+			this.rpcSend({ type: "abort" }).catch(() => {});
+			// Wait briefly for the abort to take effect
+			await this.waitForAgentEnd(3_000).catch(() => {});
 			return fallbackDescription(toolName, args);
 		} finally {
 			this.busy = false;
@@ -158,7 +169,6 @@ export class Summarizer {
 			if (this.pending) {
 				const next = this.pending;
 				this.pending = null;
-				// Fire async — don't block the current caller
 				this.doDescribe(next.toolName, next.args).then(next.resolve);
 			}
 		}
