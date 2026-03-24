@@ -44,11 +44,6 @@ export interface RpcEvent {
 	[key: string]: unknown;
 }
 
-export interface RpcAgentEndEvent extends RpcEvent {
-	type: "agent_end";
-	messages: RpcAgentMessage[];
-}
-
 export interface RpcAgentMessage {
 	role: string;
 	content: RpcContentBlock[] | string;
@@ -58,15 +53,7 @@ export interface RpcAgentMessage {
 export type RpcContentBlock =
 	| { type: "text"; text: string }
 	| { type: "thinking"; thinking: string }
-	| { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> }
-	| { type: "image"; source: { type: string; media_type: string; data: string } };
-
-export interface RpcToolExecutionStart extends RpcEvent {
-	type: "tool_execution_start";
-	toolCallId: string;
-	toolName: string;
-	args: Record<string, unknown>;
-}
+	| { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> };
 
 export interface RpcSessionState {
 	model: { provider: string; id: string; name?: string } | null;
@@ -78,19 +65,4 @@ export interface RpcSessionState {
 	messageCount: number;
 }
 
-// ── Session Types ─────────────────────────────────────────────────
 
-export interface ChatSession {
-	chatId: number;
-	cwd: string;
-	piProcess: import("child_process").ChildProcess | null;
-	isStreaming: boolean;
-	activityLines: string[];
-	activityMsgId: number | null;
-	lastEditTime: number;
-	pendingEdit: boolean;
-	editTimer: ReturnType<typeof setTimeout> | null;
-	requestId: number;
-	pendingRequests: Map<string, { resolve: (data: unknown) => void; reject: (err: Error) => void }>;
-	buffer: string;
-}

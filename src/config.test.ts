@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
-import * as path from "node:path";
 import * as os from "node:os";
 
 // We need to test loadConfig which reads from a fixed path.
@@ -8,8 +7,6 @@ import * as os from "node:os";
 vi.mock("node:fs");
 
 describe("loadConfig", () => {
-	const configDir = path.join(os.homedir(), ".config", "pi-telegram-bot");
-	const _configFile = path.join(configDir, "config.yaml");
 
 	beforeEach(() => {
 		vi.resetModules();

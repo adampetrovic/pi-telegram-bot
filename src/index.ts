@@ -217,16 +217,12 @@ async function handleAgentEnd(chatId: number, event: RpcEvent): Promise<void> {
 			m.content.some((b: RpcContentBlock) => b.type === "text" && (b as any).text?.trim()),
 	);
 
-	if (!lastAssistant || !Array.isArray(lastAssistant.content)) {
-		await telegram.sendLong(chatId, "ℹ️ Done (tools only, no text output).");
-		messageCount.sent++;
-		return;
-	}
-
 	const textParts: string[] = [];
-	for (const block of lastAssistant.content) {
-		if (block.type === "text" && (block as any).text?.trim()) {
-			textParts.push((block as any).text);
+	if (lastAssistant && Array.isArray(lastAssistant.content)) {
+		for (const block of lastAssistant.content) {
+			if (block.type === "text" && (block as any).text?.trim()) {
+				textParts.push((block as any).text);
+			}
 		}
 	}
 

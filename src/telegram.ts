@@ -5,6 +5,8 @@
 import * as https from "node:https";
 import * as fs from "node:fs";
 
+import type { LogLevel } from "./config.js";
+
 const TELEGRAM_API = "https://api.telegram.org/bot";
 
 export class TelegramClient {
@@ -20,7 +22,6 @@ export class TelegramClient {
 		const me = await this.api("getMe");
 		this.botUsername = me.username;
 
-		// Register bot commands
 		await this.api("setMyCommands", {
 			commands: [
 				{ command: "new", description: "Start a new pi session" },
@@ -30,7 +31,6 @@ export class TelegramClient {
 				{ command: "followup", description: "Queue message for later — /followup <message>" },
 				{ command: "compact", description: "Compact session context" },
 				{ command: "model", description: "Show or switch model — /model [pattern]" },
-				{ command: "thinking", description: "Set thinking level — /thinking [off|minimal|low|medium|high|xhigh]" },
 				{ command: "thinking", description: "Set thinking level — /thinking [off|minimal|low|medium|high]" },
 				{ command: "status", description: "Show session info" },
 				{ command: "detach", description: "Detach session for terminal use" },
@@ -154,7 +154,7 @@ export class TelegramClient {
 	}
 }
 
-// ── Helpers ───────────────────────────────────────────────────────
+// ── Message Splitting ─────────────────────────────────────────────
 
 export function splitMessage(text: string, maxLen: number): string[] {
 	if (text.length <= maxLen) return [text];
@@ -172,6 +172,8 @@ export function splitMessage(text: string, maxLen: number): string[] {
 	}
 	return chunks;
 }
+
+// ── File Downloads ────────────────────────────────────────────────
 
 export function downloadBuffer(url: string): Promise<Buffer> {
 	return new Promise((resolve, reject) => {
@@ -210,13 +212,13 @@ export function downloadFile(url: string, destPath: string): Promise<void> {
 	});
 }
 
+// ── Utilities ─────────────────────────────────────────────────────
+
 export function sleep(ms: number): Promise<void> {
 	return new Promise((r) => setTimeout(r, ms));
 }
 
 // ── Logging ───────────────────────────────────────────────────────
-
-import type { LogLevel } from "./config.js";
 
 const LEVELS: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 let _level: number = LEVELS.info;
