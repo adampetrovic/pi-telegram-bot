@@ -118,6 +118,24 @@ export class TelegramClient {
 		return new Promise((resolve, reject) => {
 			const body = JSON.stringify(params);
 			const url = new URL(`${TELEGRAM_API}${this.token}/${method}`);
+
+			// Hard deadline: for long-polling getUpdates, allow poll timeout + 15s buffer;
+			// for all other calls, 30 seconds.
+			const timeoutMs = params.timeout ? (params.timeout + 15) * 1000 : 30_000;
+			let settled = false;
+
+			const settle = (fn: typeof resolve | typeof reject, value: any) => {
+				if (settled) return;
+				settled = true;
+				clearTimeout(deadline);
+				fn(value);
+			};
+
+			const deadline = setTimeout(() => {
+				req.destroy();
+				settle(reject, new Error(`Request timeout (${method}, ${timeoutMs}ms)`));
+			}, timeoutMs);
+
 			const req = https.request(
 				{
 					hostname: url.hostname,
@@ -132,6 +150,7 @@ export class TelegramClient {
 				(res) => {
 					let data = "";
 					res.on("data", (chunk: string) => (data += chunk));
+					res.on("error", (e) => settle(reject, e));
 					res.on("end", () => {
 						try {
 							const parsed = JSON.parse(data);
@@ -139,18 +158,18 @@ export class TelegramClient {
 								if (parsed.error_code === 429 && parsed.parameters?.retry_after) {
 									this.rateLimitedUntil = Date.now() + parsed.parameters.retry_after * 1000;
 								}
-								reject(new Error(parsed.description || `Telegram API ${method} failed`));
+								settle(reject, new Error(parsed.description || `Telegram API ${method} failed`));
 							} else {
-								resolve(parsed.result);
+								settle(resolve, parsed.result);
 							}
 						} catch (e) {
-							reject(e);
+							settle(reject, e);
 						}
 					});
 				},
 			);
-			req.on("error", reject);
-			if (signal) signal.addEventListener("abort", () => req.destroy());
+			req.on("error", (e) => settle(reject, e));
+			if (signal) signal.addEventListener("abort", () => { req.destroy(); settle(reject, new Error("Aborted")); });
 			req.write(body);
 			req.end();
 		});

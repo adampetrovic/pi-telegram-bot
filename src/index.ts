@@ -717,11 +717,13 @@ async function main(): Promise<void> {
 
 	// Polling loop
 	let offset = 0;
+	let consecutiveErrors = 0;
 
 	while (!shuttingDown) {
 		try {
 			const { updates, nextOffset } = await telegram.poll(offset);
 			offset = nextOffset;
+			consecutiveErrors = 0;
 
 			for (const update of updates) {
 				if (shuttingDown) break;
@@ -763,8 +765,10 @@ async function main(): Promise<void> {
 			}
 		} catch (e: any) {
 			if (shuttingDown) break;
-			warn(`Polling error: ${e.message}`);
-			await sleep(5000);
+			consecutiveErrors++;
+			const backoff = Math.min(5000 * 2 ** (consecutiveErrors - 1), 60_000);
+			warn(`Polling error (${consecutiveErrors}x): ${e.message} — retrying in ${backoff / 1000}s`);
+			await sleep(backoff);
 		}
 	}
 }
