@@ -7,7 +7,7 @@ Standalone Telegram bot service that orchestrates pi coding agent sessions via t
 - **Always-on service**: Runs as a Homebrew launchd service on macOS
 - **Telegram bot polling**: Raw HTTPS against Telegram Bot API (zero dependencies)
 - **Pi RPC integration**: Spawns `pi --mode rpc` subprocess per session
-- **Summarizer**: Dedicated OpenAI mini-model RPC process for human-readable activity descriptions
+- **Summarizer**: Dedicated OpenAI Codex mini-model RPC process for human-readable activity descriptions
 - **Session management**: Long-running sessions with `/new` to start fresh
 - **Voice transcription**: whisper.cpp for voice notes
 - **Image support**: Photos forwarded to pi as base64
@@ -20,7 +20,7 @@ src/
   config.ts         # YAML config loader (~/.config/pi-telegram-bot/config.yaml)
   telegram.ts       # Telegram Bot API client, logging utilities
   pi-session.ts     # Pi RPC subprocess management (JSONL protocol)
-  summarizer.ts     # Dedicated OpenAI mini-model RPC process for activity descriptions
+  summarizer.ts     # Dedicated OpenAI Codex mini-model RPC process for activity descriptions
   activity.ts       # Live-updating Telegram message (rate-limited)
   transcribe.ts     # Voice note transcription via whisper.cpp
   types.ts          # Shared TypeScript types

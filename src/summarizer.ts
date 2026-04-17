@@ -1,6 +1,7 @@
 /**
- * Summarizer — a dedicated lightweight pi RPC process (OpenAI mini model) that
- * produces human-readable descriptions of what the main agent is doing.
+ * Summarizer — a dedicated lightweight pi RPC process (OpenAI Codex mini
+ * model) that produces human-readable descriptions of what the main agent is
+ * doing.
  *
  * Runs alongside the main agent. Receives tool call info, returns a short
  * status line for the Telegram activity indicator.
@@ -10,7 +11,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { log, debug, warn } from "./telegram.js";
 
 const PI_BIN = process.env.PI_BIN || "pi";
-const MODEL = "openai/gpt-5-mini";
+const MODEL = "openai-codex/gpt-5.4-mini";
 
 const SYSTEM_INSTRUCTIONS = `You are a status line generator. You receive information about tool calls that a coding agent is making, and you respond with a single short status message (max 80 chars) describing what the agent is doing in plain English.
 
