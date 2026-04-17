@@ -700,7 +700,7 @@ async function main(): Promise<void> {
 		process.exit(1);
 	}
 
-	// Start summarizer (Haiku) for human-readable activity descriptions
+	// Start summarizer (OpenAI mini model) for human-readable activity descriptions
 	summarizer = new Summarizer();
 	try {
 		await summarizer.start();
