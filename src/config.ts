@@ -22,21 +22,26 @@ export interface Config {
 	log_level: LogLevel;
 }
 
-const CONFIG_DIR = path.join(os.homedir(), ".config", "pi-telegram-bot");
-const CONFIG_FILE = path.join(CONFIG_DIR, "config.yaml");
+const DEFAULT_CONFIG_DIR = path.join(os.homedir(), ".config", "pi-telegram-bot");
+const DEFAULT_CONFIG_FILE = path.join(DEFAULT_CONFIG_DIR, "config.yaml");
+
+function configFilePath(): string {
+	return process.env.PI_TELEGRAM_BOT_CONFIG || DEFAULT_CONFIG_FILE;
+}
 
 export function loadConfig(): Config {
-	if (!fs.existsSync(CONFIG_FILE)) {
-		console.error(`Config not found: ${CONFIG_FILE}`);
-		console.error(`Create it from the example:\n  mkdir -p ${CONFIG_DIR}\n  cp config.example.yaml ${CONFIG_FILE}`);
+	const configFile = configFilePath();
+	if (!fs.existsSync(configFile)) {
+		console.error(`Config not found: ${configFile}`);
+		console.error(`Create it from the example:\n  mkdir -p ${DEFAULT_CONFIG_DIR}\n  cp config.example.yaml ${configFile}`);
 		process.exit(1);
 	}
 
-	const raw = fs.readFileSync(CONFIG_FILE, "utf8");
+	const raw = fs.readFileSync(configFile, "utf8");
 	const parsed = parseYaml(raw);
 
 	if (!parsed?.telegram?.bot_token) {
-		console.error(`Missing required field: telegram.bot_token in ${CONFIG_FILE}`);
+		console.error(`Missing required field: telegram.bot_token in ${configFile}`);
 		process.exit(1);
 	}
 

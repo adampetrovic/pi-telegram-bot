@@ -4,7 +4,7 @@ Standalone Telegram bot service that orchestrates pi coding agent sessions via t
 
 ## Architecture
 
-- **Always-on service**: Runs as a Homebrew launchd service on macOS
+- **Always-on service**: Runs as a Homebrew launchd service on macOS or as a Linux container in Kubernetes
 - **Telegram bot polling**: Raw HTTPS against Telegram Bot API (zero dependencies)
 - **Pi RPC integration**: Spawns `pi --mode rpc` subprocess per session
 - **Summarizer**: Dedicated OpenAI Codex mini-model RPC process for human-readable activity descriptions
@@ -115,8 +115,12 @@ npm run test:coverage     # With coverage report
 npm run build
 brew services restart pi-telegram-bot
 
+# Container smoke build
+docker build -t pi-telegram-bot:local .
+
 # Production release — push to main triggers CI + release pipeline
-# The release workflow runs lint + test + build before creating a release
+# The release workflow runs lint + test + build, creates a GitHub release,
+# updates the Homebrew tap, and publishes ghcr.io/adampetrovic/pi-telegram-bot
 ```
 
 ## Version Control

@@ -8,10 +8,11 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
+import * as os from "node:os";
 import { log, debug, warn } from "./telegram.js";
 
 const PI_BIN = process.env.PI_BIN || "pi";
-const MODEL = "openai-codex/gpt-5.4-mini";
+const MODEL = process.env.PI_TELEGRAM_SUMMARIZER_MODEL || "openai-codex/gpt-5.4-mini";
 
 const SYSTEM_INSTRUCTIONS = `You are a status line generator. You receive information about tool calls that a coding agent is making, and you respond with a single short status message (max 80 chars) describing what the agent is doing in plain English.
 
@@ -48,7 +49,7 @@ export class Summarizer {
 	async start(): Promise<void> {
 		if (this.process) return;
 
-		const home = process.env.HOME || "/Users/adam";
+		const home = process.env.HOME || os.homedir();
 		const shimPath = `${home}/.local/share/mise/shims`;
 		const brewPath = "/opt/homebrew/bin:/opt/homebrew/sbin";
 		const basePath = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";

@@ -3,6 +3,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
+import * as os from "node:os";
 import { log, debug, warn } from "./telegram.js";
 import type { RpcCommand, RpcResponse, RpcEvent, RpcSessionState } from "./types.js";
 
@@ -50,7 +51,7 @@ export class PiSession {
 
 		log(`Starting pi: ${PI_BIN} ${args.join(" ")} (cwd: ${this._cwd})`);
 
-		const home = process.env.HOME || "/Users/adam";
+		const home = process.env.HOME || os.homedir();
 		const shimPath = `${home}/.local/share/mise/shims`;
 		const brewPath = "/opt/homebrew/bin:/opt/homebrew/sbin";
 		const basePath = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";

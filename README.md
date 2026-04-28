@@ -39,7 +39,7 @@ cp config.example.yaml ~/.config/pi-telegram-bot/config.yaml
 
 ### Configuration
 
-Edit `~/.config/pi-telegram-bot/config.yaml`:
+Edit `~/.config/pi-telegram-bot/config.yaml` (or set `PI_TELEGRAM_BOT_CONFIG` to an explicit config file path):
 
 ```yaml
 telegram:
@@ -77,6 +77,57 @@ Restart after code changes:
 cd ~/code/pi-telegram-bot && npm run build
 brew services restart pi-telegram-bot
 ```
+
+### Run as a container
+
+Release builds publish a Linux image to GHCR:
+
+```bash
+docker run --rm \
+  -v "$HOME/.config/pi-telegram-bot:/config/pi-telegram-bot" \
+  -v "$HOME/.pi/agent:/config/.pi/agent" \
+  -v "$HOME/code:/config/code" \
+  ghcr.io/adampetrovic/pi-telegram-bot:latest
+```
+
+The image includes `pi`, Node.js, Git, GitHub CLI, Jujutsu, kubectl, Flux, SOPS, Task, Python, curl, jq, and OpenSSH for Kubernetes-hosted agent usage.
+
+### Local container test
+
+Do not run this while the Homebrew service is also polling the same Telegram bot token.
+
+```bash
+# Stop the laptop service first
+brew services stop pi-telegram-bot
+
+# Create an isolated test home and copy your existing bot config
+TEST_HOME="$HOME/.local/share/pi-telegram-bot-container-test"
+mkdir -p "$TEST_HOME/pi-telegram-bot" "$TEST_HOME/code"
+cp "$HOME/.config/pi-telegram-bot/config.yaml" "$TEST_HOME/pi-telegram-bot/config.yaml"
+
+# Complete Pi OAuth login inside the container; auth.json is written under $TEST_HOME/.pi/agent
+# Use the published semver tag once the release workflow has run, e.g. :v1.0.16
+docker run --rm -it \
+  -v "$TEST_HOME:/config" \
+  ghcr.io/adampetrovic/pi-telegram-bot:latest \
+  pi
+
+# Then run the bot using the same /config volume
+docker run --rm -it --name pi-telegram-bot-test \
+  -v "$TEST_HOME:/config" \
+  ghcr.io/adampetrovic/pi-telegram-bot:latest
+
+# Restart the laptop service when finished, if desired
+brew services start pi-telegram-bot
+```
+
+Useful container/Kubernetes environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `PI_TELEGRAM_BOT_CONFIG` | Path to `config.yaml` (the image sets `/config/pi-telegram-bot/config.yaml`) |
+| `PI_TELEGRAM_SUMMARIZER_MODEL` | Override the activity summarizer model (defaults to `openai-codex/gpt-5.4-mini`) |
+| `PI_BIN` | Path/name for the `pi` executable spawned by the bot |
 
 ## Commands
 
