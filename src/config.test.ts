@@ -10,6 +10,7 @@ describe("loadConfig", () => {
 
 	beforeEach(() => {
 		vi.resetModules();
+		delete process.env.PI_TELEGRAM_BOT_CONFIG;
 	});
 
 	afterEach(() => {
@@ -29,6 +30,7 @@ describe("loadConfig", () => {
 	});
 
 	it("parses a valid config with all fields", async () => {
+		process.env.PI_TELEGRAM_BOT_CONFIG = "/config/pi-telegram-bot/config.yaml";
 		vi.mocked(fs.existsSync).mockReturnValue(true);
 		vi.mocked(fs.readFileSync).mockReturnValue(`
 telegram:
@@ -46,6 +48,8 @@ log_level: debug
 		const { loadConfig } = await import("./config.js");
 		const config = loadConfig();
 
+		expect(fs.existsSync).toHaveBeenCalledWith("/config/pi-telegram-bot/config.yaml");
+		expect(fs.readFileSync).toHaveBeenCalledWith("/config/pi-telegram-bot/config.yaml", "utf8");
 		expect(config.telegram.bot_token).toBe("test-token-123");
 		expect(config.telegram.chat_id).toBe(99999);
 		expect(config.pi.cwd).toBe("/tmp/test");
