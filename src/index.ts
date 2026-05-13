@@ -18,6 +18,7 @@ import { ActivityFeed } from "./activity.js";
 import { Summarizer } from "./summarizer.js";
 
 import { transcribeVoice } from "./transcribe.js";
+import { isServiceRestartRequest, scheduleServiceRestart } from "./restart.js";
 import type { RpcEvent, RpcAgentMessage, RpcContentBlock } from "./types.js";
 
 // ── Config ────────────────────────────────────────────────────────
@@ -285,6 +286,10 @@ async function handleCommand(chatId: number, text: string): Promise<void> {
 
 		case "/detach":
 			await handleDetach(chatId);
+			return;
+
+		case "/restart":
+			await handleRestart(chatId);
 			return;
 
 		default:
@@ -582,6 +587,16 @@ async function handleStatus(chatId: number): Promise<void> {
 	}
 }
 
+async function handleRestart(chatId: number): Promise<void> {
+	log("Scheduling pi-telegram-bot service restart");
+	try {
+		await telegram.sendLong(chatId, "🔁 Restarting Pi Telegram Bot service...");
+	} catch (e: any) {
+		warn(`Failed to send restart notice: ${e.message}`);
+	}
+	scheduleServiceRestart();
+}
+
 async function handleDetach(chatId: number): Promise<void> {
 	if (!piSession?.isRunning) {
 		await telegram.sendLong(chatId, "ℹ️ No active session to detach.");
@@ -621,6 +636,12 @@ async function handleDetach(chatId: number): Promise<void> {
 
 async function handleMessage(chatId: number, text: string): Promise<void> {
 	debug(`handleMessage: "${text.slice(0, 80)}"`);
+
+	if (isServiceRestartRequest(text)) {
+		await handleRestart(chatId);
+		return;
+	}
+
 	await telegram.sendChatAction(chatId);
 
 	try {

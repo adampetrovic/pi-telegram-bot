@@ -43,6 +43,7 @@ bin/
 | `/thinking [level]` | Show or set thinking level (off/minimal/low/medium/high) |
 | `/status` | Show session info |
 | `/detach` | Stop RPC process, print session file for terminal use |
+| `/restart` | Safely restart the Homebrew service |
 
 ## Configuration
 

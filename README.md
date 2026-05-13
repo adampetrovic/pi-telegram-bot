@@ -141,6 +141,7 @@ Useful container/Kubernetes environment variables:
 | `/compact [instructions]` | Compact session context to reduce token usage |
 | `/model [provider/id]` | Show current model or switch to a new one |
 | `/status` | Show session info (model, tokens, cost, cwd) |
+| `/restart` | Safely restart the Homebrew service |
 
 Regular messages (without a `/` prefix) are sent as prompts to the active session. If no session exists, one is created automatically.
 
