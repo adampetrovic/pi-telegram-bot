@@ -13,7 +13,7 @@ RUN npm run build && npm prune --omit=dev
 FROM node:24-bookworm-slim AS runtime
 
 ARG TARGETARCH=amd64
-ARG PI_CODING_AGENT_VERSION=0.70.5
+ARG PI_CODING_AGENT_VERSION=0.74.0
 ARG JJ_VERSION=0.38.0
 ARG KUBECTL_VERSION=v1.35.1
 ARG FLUX_VERSION=2.7.5
@@ -42,7 +42,7 @@ RUN apt-get update \
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-RUN npm install -g "@mariozechner/pi-coding-agent@${PI_CODING_AGENT_VERSION}"
+RUN npm install -g "@earendil-works/pi-coding-agent@${PI_CODING_AGENT_VERSION}"
 
 RUN set -eux; \
     case "${TARGETARCH}" in \
