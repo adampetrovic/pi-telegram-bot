@@ -6,7 +6,7 @@
  */
 
 import type { TelegramClient } from "./telegram.js";
-import type { Summarizer } from "./summarizer.js";
+import { fallbackDescription, type Summarizer } from "./summarizer.js";
 import { debug } from "./telegram.js";
 
 const MIN_EDIT_INTERVAL_MS = 3000;
@@ -155,17 +155,5 @@ export class ActivityFeed {
 			}
 		}
 		return fallbackDescription(toolName, args);
-	}
-}
-
-function fallbackDescription(toolName: string, args: Record<string, unknown>): string {
-	const p = args?.path as string;
-	const name = p ? p.split("/").filter(Boolean).pop() || "file" : "file";
-	switch (toolName.toLowerCase()) {
-		case "read": return `📖 Reading ${name}`;
-		case "bash": return "⚙️ Running a command";
-		case "edit": return `✏️ Editing ${name}`;
-		case "write": return `📝 Writing ${name}`;
-		default: return "🔧 Working...";
 	}
 }

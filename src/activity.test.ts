@@ -117,7 +117,7 @@ describe("ActivityFeed", () => {
 		// Now the buffered tool should flush
 		await vi.advanceTimersByTimeAsync(0);
 		expect(tg.editMessage).toHaveBeenCalledTimes(1);
-		expect(tg.editMessage).toHaveBeenCalledWith(123, 42, expect.stringContaining("Running"));
+		expect(tg.editMessage).toHaveBeenCalledWith(123, 42, expect.stringContaining("Listing files"));
 	});
 
 	it("only keeps the latest tool when multiple arrive before flush", async () => {

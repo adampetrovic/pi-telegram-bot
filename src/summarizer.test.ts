@@ -17,10 +17,17 @@ describe("Summarizer", () => {
 		expect(result).toContain("baz.ts");
 	});
 
-	it("returns fallback for bash without path", async () => {
+	it("returns a useful fallback for common bash commands", async () => {
 		const s = new Summarizer();
-		const result = await s.describe("bash", { command: "ls -la" });
-		expect(result).toContain("Running");
+		await expect(s.describe("bash", { command: "ls -la" })).resolves.toContain("Listing files");
+		await expect(s.describe("bash", { command: "kubectl logs -n media deploy/xteve" })).resolves.toContain("Kubernetes logs");
+		await expect(s.describe("bash", { command: "gws calendar +insert --calendar primary" })).resolves.toContain("calendar event");
+	});
+
+	it("falls back to generic bash text when command is unknown", async () => {
+		const s = new Summarizer();
+		const result = await s.describe("bash", { command: "some-custom-binary --flag" });
+		expect(result).toContain("Running a command");
 	});
 
 	it("returns fallback for write", async () => {
